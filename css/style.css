@@ -412,3 +412,17 @@ button.tile:hover { border-color: var(--accent); }
 .action small { color: var(--muted); font-size: 13px; }
 .hint { margin: -4px 0 12px; }
 .event.plan .event-btn { cursor: pointer; }
+
+/* ── Agenda à la carte ───────────────────────────────────── */
+.event.optional .event-btn { border: 1.5px dashed var(--border); opacity: .6; }
+.event.optional .event-btn:hover { opacity: 1; }
+.optional-toggle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 14px; }
+.optional-toggle .chip { margin: 0; }
+
+/* ── Séances à choix ─────────────────────────────────────── */
+.choose-hint { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer; font-size: 14px; border-color: var(--accent); flex-wrap: wrap; }
+.choose-hint .icon { margin-left: auto; }
+
+.check-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.check-list .check-label { font-weight: 500; align-items: flex-start; }
+.check-list .check-label small { font-weight: 400; }

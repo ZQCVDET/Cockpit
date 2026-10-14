@@ -29,9 +29,19 @@ export function demoData() {
     const wed = addDays(monday, 2), sat = addDays(monday, 5);
     events.push({ id: uid(), source: 'manual', kind: 'reunion', title: 'Réunion SCR', starts_at: at(wed, 18), ends_at: at(wed, 19.5), status: null });
     if (w % 2 === 0) events.push({ id: uid(), source: 'manual', kind: 'job', title: 'Mise en Scène – livraisons', starts_at: at(sat, 9), ends_at: at(sat, 15), status: null });
+    // Exercices d'Econometrics proposés en 3 groupes : un seul à choisir
+    [['A – Dupont', 1, 14], ['B – Martin', 2, 16], ['C – Leroy', 3, 10]].forEach(([g, day, h], gi) => {
+      const d = addDays(monday, day);
+      events.push({ id: uid(), source: 'ics', kind: 'cours', title: `Econometrics – Exercices (Gr. ${g})`, location: 'Solbosch – S',
+        starts_at: at(d, h), ends_at: at(d, h + 2), status: w < 0 && gi === 0 ? 'present' : null });
+    });
+    // Agenda public du Cercle (à la carte) : ne compte que si "J'y vais"
+    const tue = addDays(monday, 1), thu = addDays(monday, 3);
+    events.push({ id: uid(), source: 'ics', kind: 'loisir', optional: true, title: 'TD Cercle Solvay', location: 'Jefke', starts_at: at(thu, 22), ends_at: at(addDays(thu, 1), 3), status: w === 0 ? 'going' : null });
+    events.push({ id: uid(), source: 'ics', kind: 'loisir', optional: true, title: 'Afterwork Cercle', starts_at: at(tue, 18), ends_at: at(tue, 20), status: null });
   }
   // Séances passées : pointées jusqu'à la semaine dernière, la semaine en cours reste "à pointer"
-  const past = events.filter((e) => e.kind === 'cours' && new Date(e.ends_at) < now);
+  const past = events.filter((e) => e.kind === 'cours' && !e.title.includes('Exercices') && new Date(e.ends_at) < now);
   past.forEach((e) => { if (new Date(e.starts_at) < thisWeek) e.status = 'present'; });
   const pointed = past.filter((e) => e.status);
   if (pointed.length > 8) { pointed[pointed.length - 3].status = 'rate'; pointed[pointed.length - 8].status = 'rate'; pointed[4].status = 'rattrape'; }
@@ -69,5 +79,5 @@ export function demoData() {
     task('Envoyer mon CV mis à jour', 'Projet perso', 'normale', day(-3), 30, 30, { status: 'done', done_at: new Date().toISOString() }),
   ];
 
-  return { events, work_logs: logs, newsletters, tasks, settings: null };
+  return { events, work_logs: logs, newsletters, tasks, settings: { choiceCourses: { 'econometrics – exercices': '' } } };
 }

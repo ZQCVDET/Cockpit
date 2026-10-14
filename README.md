@@ -10,8 +10,8 @@ C'est une app web installable (PWA) qui fonctionne sur iPhone, iPad et ordinateu
 | Écran | À quoi ça sert |
 |---|---|
 | **Accueil** | Temps libre restant cette semaine, séances à rattraper, heures travaillées, compte à rebours avant les examens, newsletters non lues, programme du jour |
-| **Agenda** | Semaine par semaine. Les cours arrivent tout seuls depuis ton lien iCal ; tu ajoutes réunions, job, club, loisirs (piano, sport…), perso (avec répétition hebdo possible). Les blocs proposés par le planning apparaissent en pointillés |
-| **Cours** | Pointage en lot : coche les séances terminées → *J'y étais* (→ **Complétés**) ou *Pas assisté* (→ **À rattraper**, puis *Rattrapé* une fois fait). Filtre par cours, onglet **Par cours** avec les stats |
+| **Agenda** | Semaine par semaine. Les cours arrivent tout seuls depuis ton lien iCal ; tu ajoutes réunions, job, club, loisirs (piano, sport…), perso (avec répétition hebdo possible). Les blocs proposés par le planning apparaissent en pointillés. **Agenda à la carte** (ex. agenda public du Cercle) : événements visibles en grisé, comptés seulement si tu touches « J'y vais » |
+| **Cours** | **Cours à choix** (TP ou théorie donnés par plusieurs assistants / profs) : coche-les dans Réglages, choisis ton **groupe habituel** (compté chaque semaine), exceptions possibles semaine par semaine ; les autres groupes ne vont jamais dans « à rattraper ». Pointage en lot : coche les séances terminées → *J'y étais* (→ **Complétés**) ou *Pas assisté* (→ **À rattraper**, puis *Rattrapé* une fois fait). Filtre par cours, onglet **Par cours** avec les stats |
 | **Tâches** | To-do list avec 4 niveaux d'urgence, deadline et temps estimé. Le **planning automatique** place chaque tâche dans tes créneaux libres (deadline la plus proche d'abord) et alerte quand ça ne rentre pas. Il garde une **pause après chaque cours** et le **trajet** domicile ↔ campus (réglables). Touche un bloc pour le **déplacer** (📌) ou dire « **pas dispo** ». Import Notion (automatique ou CSV) |
 | **Journal** | Chrono (lancé sur le téléphone, arrêté sur l'ordi, ça marche) ou ajout manuel. Totaux du mois par catégorie et par semaine |
 | **News** | Les e-mails de ton libellé Gmail « Newsletters », lisibles dans l'app |
@@ -75,4 +75,4 @@ Technologies : [Preact](https://preactjs.com) + [htm](https://github.com/develop
 ```bash
 python3 .claude/serve.py
 ```
-Puis ouvre http://localhost:8765. Si `config.js` est vide, l'app démarre en **mode démo** avec des données d'exemple.
+Puis ouvre http://localhost:8765. Si `config.js` est vide, ou si tu ajoutes `?demo` à l'adresse, l'app démarre en **mode démo** avec des données d'exemple.

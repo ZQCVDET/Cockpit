@@ -83,7 +83,11 @@ Coût : **0 €**. Tu utilises 3 services gratuits :
    | `SUPABASE_URL` | ta Project URL |
    | `SUPABASE_SECRET_KEY` | ta clé **secrète** Supabase |
    | `USER_ID` | ton User UID (étape 3.4) |
-   | `ICS_URL` | le lien iCal de ton horaire |
+   | `ICS_URL` | le lien iCal de ton horaire de cours |
+   | `ICS_URL_EXTRA` | *(optionnel)* le(s) lien(s) iCal d'autres agendas (ex. Cercle Solvay), un par ligne |
+   | `ICS_EXTRA_KIND` | *(optionnel)* leur type dans l'app : `loisir` (défaut), `club`, `reunion`, `job` ou `perso` |
+   | `ICS_URL_OPTIONAL` | *(optionnel)* agenda(s) **à la carte**, ex. l'agenda public du Cercle : visibles dans l'app, comptés seulement si tu touches « J'y vais » |
+   | `ICS_OPTIONAL_KIND` | *(optionnel)* leur type : `loisir` (défaut), `club`, `reunion`… |
    | `GMAIL_LABEL` | `Newsletters` |
 
    → **Enregistrer les propriétés du script**. (Pour Notion, voir l'étape 4c plus bas.)

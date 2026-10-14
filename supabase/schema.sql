@@ -24,7 +24,8 @@ create table if not exists public.events (
   location    text,
   starts_at   timestamptz not null,
   ends_at     timestamptz not null,
-  status      text check (status in ('present', 'rate', 'rattrape')),  -- vide = pas encore pointée
+  status      text check (status in ('present', 'rate', 'rattrape', 'going', 'skip')),  -- cours : vide = pas encore pointée ; à la carte : 'going' = j'y vais
+  optional    boolean not null default false,        -- agenda "à la carte" : ne compte que si status = 'going'
   notes       text,
   synced_at   timestamptz,
   created_at  timestamptz not null default now(),

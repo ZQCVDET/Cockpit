@@ -1,6 +1,6 @@
 // Accueil : vue d'ensemble de la semaine.
 import {
-  html, useMemo, KINDS, weekBudget, toPoint, startOfWeek, startOfMonth, sameDay, fmtTime, fmtDay,
+  html, useMemo, KINDS, weekBudget, toPoint, counts, startOfWeek, startOfMonth, sameDay, fmtTime, fmtDay,
   fmtHours, fmtMinutes, isoDate, DAY, startOfDay,
 } from '../lib.js';
 import { StackBar, Icon } from '../ui.js';
@@ -13,10 +13,12 @@ export function Home({ store, go }) {
   const weekStart = startOfWeek(now);
   const b = useMemo(() => weekBudget(events, settings, weekStart, now), [events, settings]);
 
-  const today = events.filter((e) => sameDay(e.starts_at, now));
-  const next = events.find((e) => new Date(e.starts_at) > now);
+  const today = events.filter((e) => counts(e) && sameDay(e.starts_at, now));
+  const next = events.find((e) => counts(e) && new Date(e.starts_at) > now);
   const toCatchUp = events.filter((e) => e.kind === 'cours' && e.status === 'rate').length;
   const pending = events.filter((e) => toPoint(e, now)).length;
+  const weekEndTs = startOfWeek(now).getTime() + 7 * DAY;
+  const toChoose = new Set(events.filter((e) => e._choice && !e._decided && e.status !== 'skip' && new Date(e.starts_at) > now && new Date(e.starts_at).getTime() < weekEndTs).map((e) => e._choice)).size;
   const weekKey = isoDate(weekStart), monthKey = isoDate(startOfMonth(now));
   const weekMin = logs.filter((l) => l.day >= weekKey).reduce((a, l) => a + l.minutes, 0);
   const monthMin = logs.filter((l) => l.day >= monthKey).reduce((a, l) => a + l.minutes, 0);
@@ -64,6 +66,12 @@ export function Home({ store, go }) {
       </ul>
       ${b.free < 0 && html`<p class="warn">Semaine surchargée : ${fmtHours(-b.free)} de plus que ton temps disponible.</p>`}
     </section>
+
+    ${toChoose > 0 && html`
+      <button class="card choose-hint" onClick=${() => go('agenda')}>
+        <span class="tag tag-accent">À choisir</span> ${toChoose} cours à choix cette semaine : choisis ton groupe dans l'Agenda
+        <${Icon} name="right" size=${16} />
+      </button>`}
 
     <div class="tiles">
       <button class="tile" onClick=${() => go('cours')}>

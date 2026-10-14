@@ -2,7 +2,7 @@
 // Chaque écran lit l'état via useStore() et se met à jour automatiquement.
 
 import { db } from './db.js';
-import { useState, useEffect, DEFAULT_SETTINGS, addDays } from './lib.js';
+import { useState, useEffect, DEFAULT_SETTINGS, addDays, markChoices } from './lib.js';
 
 const state = {
   ready: false,
@@ -14,7 +14,10 @@ const state = {
   settings: { ...DEFAULT_SETTINGS },
 };
 const listeners = new Set();
-const emit = () => listeners.forEach((fn) => fn({ ...state }));
+const emit = () => {
+  markChoices(state.events, state.settings); // repère les cours à choix (plusieurs groupes / profs)
+  listeners.forEach((fn) => fn({ ...state }));
+};
 
 export function useStore() {
   const [s, set] = useState({ ...state });
@@ -66,6 +69,24 @@ export async function updateEvents(ids, patch) {
   await db.updateMany('events', ids, patch);
   const set = new Set(ids);
   state.events = state.events.map((e) => (set.has(e.id) ? { ...e, ...patch } : e)); emit();
+}
+// Cours à choix, pour UNE semaine :
+//  "J'y vais" → cette séance compte (les autres choix de la semaine sont annulés)
+//  "Je n'y vais pas" → elle ne compte pas, et ne va jamais dans "à rattraper"
+export async function chooseSession(e, going) {
+  if (!going) return updateEvent(e.id, { status: 'skip' });
+  const others = state.events.filter((x) => x._choice === e._choice && x.id !== e.id && (x.status === 'going' || x.status === 'skip'));
+  if (others.length) await updateEvents(others.map((x) => x.id), { status: null });
+  await updateEvent(e.id, { status: e._default ? null : 'going' }); // ton groupe habituel compte déjà tout seul
+}
+// Groupe habituel : compté automatiquement toutes les semaines
+export async function setUsualGroup(e, on) {
+  await saveSettings({ choiceCourses: { ...state.settings.choiceCourses, [e._courseKey]: on ? e._series : '' } });
+}
+export async function setChoiceCourse(key, on) {
+  const c = { ...state.settings.choiceCourses };
+  if (on) c[key] = c[key] || ''; else delete c[key];
+  await saveSettings({ choiceCourses: c });
 }
 export async function deleteEvent(id) {
   await db.remove('events', id);

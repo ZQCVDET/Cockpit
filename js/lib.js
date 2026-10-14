@@ -22,10 +22,67 @@ export const STATUS = {
   present:   { label: 'Assisté',   cls: 'tag-soft' },
   rate:      { label: 'Raté',      cls: 'tag-red' },
   rattrape:  { label: 'Rattrapé',  cls: 'tag-green' },
+  going:     { label: 'J\'y vais',  cls: 'tag-green' },   // événement "à la carte" / séance à choix retenue
+  skip:      { label: 'Je n\'y vais pas', cls: 'tag-soft' },
 };
-// Une séance passée sans statut est "à pointer"
+// Statuts qui veulent dire "cette séance fait partie de mon planning"
+export const CHOSEN = ['going', 'present', 'rate', 'rattrape'];
+
+// Est-ce que l'événement compte (temps libre, planning, cours) ?
+//  - agenda à la carte : seulement si "J'y vais"
+//  - cours à choix (plusieurs groupes / profs) : seulement ton groupe habituel ou celui choisi cette semaine
+export const counts = (e) => (!e.optional || e.status === 'going') && (!e._choice || e._counted);
+
+// Une séance passée pas encore pointée → "à pointer" (pour une séance à choix : seulement celle retenue)
 export const isPast = (e, now = new Date()) => new Date(e.ends_at) < now;
-export const toPoint = (e, now = new Date()) => e.kind === 'cours' && !e.status && isPast(e, now);
+export const toPoint = (e, now = new Date()) =>
+  e.kind === 'cours' && isPast(e, now) && (e._choice ? e._counted && (!e.status || e.status === 'going') : !e.status);
+
+// ── Cours à choix (même cours proposé par plusieurs assistants / profs, à des horaires différents) ──
+export const plain = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Nom du cours sans le groupe / l'assistant : "Econometrics – Exercices (Gr. B – Dupont)" → "Econometrics – Exercices"
+export const courseName = (title) => title
+  .replace(/\s*[([].*?[)\]]\s*/g, ' ')
+  .replace(/\b(gr(ou)?p?e?|grp|gr)\.?\s*[a-z0-9]{1,3}\b/gi, ' ')
+  .replace(/\s*[-–—:|]\s*$/, '')
+  .replace(/\s+/g, ' ').trim();
+// Une "série" = un groupe précis : même titre complet, même jour de la semaine, même heure
+export const seriesOf = (e) => { const d = new Date(e.starts_at); return `${plain(e.title)}|${d.getDay()}|${d.getHours()}:${d.getMinutes()}`; };
+
+// Marque les séances des cours à choix (Réglages → Cours à choix) :
+//  e._choice  = "cours|semaine" : les alternatives d'une même semaine
+//  e._default = c'est ton groupe habituel (compté automatiquement chaque semaine)
+//  e._counted = la séance fait partie de ton planning (groupe habituel, ou « J'y vais » cette semaine)
+//  e._decided = la semaine est réglée (une séance retenue, ou tu as dit « Je n'y vais pas »)
+export function markChoices(events, settings) {
+  const courses = settings.choiceCourses || {};          // { cours: série habituelle ('' = pas encore choisie) }
+  const groups = {};
+  for (const e of events) {
+    delete e._choice; delete e._counted; delete e._decided; delete e._default; delete e._course; delete e._courseKey; delete e._series;
+    if (e.kind !== 'cours') continue;
+    const name = courseName(e.title), key = plain(name);
+    if (!(key in courses)) continue;
+    Object.assign(e, { _course: name, _courseKey: key, _series: seriesOf(e) });
+    e._default = courses[key] === e._series;
+    e._choice = `${key}|${isoDate(startOfWeek(e.starts_at))}`;
+    (groups[e._choice] ||= []).push(e);
+  }
+  for (const list of Object.values(groups)) {
+    // Si tu vas exceptionnellement à un autre groupe cette semaine, ton groupe habituel ne compte pas
+    const override = list.some((e) => !e._default && CHOSEN.includes(e.status));
+    list.forEach((e) => { e._counted = CHOSEN.includes(e.status) || (e._default && e.status !== 'skip' && !override); });
+    const decided = list.some((e) => e._counted || e.status === 'skip');
+    const alternatives = new Set(list.map((e) => e._series)).size;
+    list.forEach((e) => { e._decided = decided; e._alternatives = alternatives; });
+  }
+  return events;
+}
+// Tous les cours (nom sans groupe/prof) présents dans l'agenda, pour la liste des Réglages
+export const courseList = (events) => {
+  const m = new Map();
+  for (const e of events) if (e.kind === 'cours') { const n = courseName(e.title); m.set(plain(n), n); }
+  return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+};
 
 // ── Réglages par défaut ─────────────────────────────────────
 export const DEFAULT_SETTINGS = {
@@ -47,6 +104,7 @@ export const DEFAULT_SETTINGS = {
   examStart: '2027-01-04',
   examLabel: 'Session de janvier',
   timer: null,          // chrono en cours : { start, category, subject }
+  choiceCourses: {},    // cours à choix : { cours: groupe habituel } (voir Réglages)
   // Planning automatique
   planMaxPerDay: 4,     // heures de travail perso max par jour
   planBlockMax: 120,    // durée max d'un bloc (minutes)
@@ -105,7 +163,7 @@ export function weekBudget(events, settings, weekStart, now = new Date()) {
   const perDay = Math.max(0, settings.dayEnd - settings.dayStart);
   const capacity = perDay * 7;
   const weekEnd = addDays(weekStart, 7);
-  const inWeek = events.filter((e) => new Date(e.starts_at) < weekEnd && new Date(e.ends_at) > weekStart);
+  const inWeek = events.filter((e) => counts(e) && new Date(e.starts_at) < weekEnd && new Date(e.ends_at) > weekStart);
 
   const byKind = {};
   for (const e of inWeek) byKind[e.kind] = (byKind[e.kind] || 0) + hoursBetween(e.starts_at, e.ends_at);

@@ -31,42 +31,84 @@ function setup() {
 /** Lancé automatiquement toutes les heures. */
 function syncAll() {
   const p = props_();
-  if (p.ICS_URL) syncCalendar();
-  if (p.GMAIL_LABEL) syncNewsletters();
-  if (p.NOTION_TOKEN && p.NOTION_DATABASE_ID) syncNotion();
+  const errors = [];
+  // Chaque partie est indépendante : si l'une plante, les autres tournent quand même
+  const run = (name, fn) => { try { fn(); } catch (err) { console.error(name + ' : ' + err.message); errors.push(name + ' : ' + err.message); } };
+  if (p.ICS_URL || p.ICS_URL_EXTRA || p.ICS_URL_OPTIONAL) run('Agendas', syncCalendar);
+  if (p.GMAIL_LABEL) run('Newsletters', syncNewsletters);
+  if (p.NOTION_TOKEN && p.NOTION_DATABASE_ID) run('Notion', syncNotion);
+  if (errors.length) throw new Error(errors.join(' | ')); // Google t'envoie un e-mail si ça échoue
 }
 
-// ── 1. Horaire de cours ─────────────────────────────────────
+// ── 1. Agendas (horaire de cours + autres agendas) ──────────
+// ICS_URL        = ton horaire de cours ULB → type "Cours" (suivi des présences)
+// ICS_URL_EXTRA  = autre(s) agenda(s), ex. Cercle Solvay. Plusieurs liens possibles : un par ligne ou séparés par un espace.
+// ICS_EXTRA_KIND = type donné à ces événements : loisir (défaut), club, reunion, job, perso
+// ICS_URL_OPTIONAL  = agenda(s) "à la carte" (ex. agenda public du Cercle) : visibles dans l'app,
+//                     mais comptés seulement si tu touches "J'y vais"
+// ICS_OPTIONAL_KIND = leur type : loisir (défaut), club, reunion, job, perso
 function syncCalendar() {
   const p = props_();
   const runStart = new Date().toISOString();
-  const res = UrlFetchApp.fetch(p.ICS_URL.replace(/^webcal:/i, 'https:'), { muteHttpExceptions: true, followRedirects: true });
-  if (res.getResponseCode() !== 200) throw new Error('Calendrier inaccessible (' + res.getResponseCode() + ')');
-
   const from = new Date(Date.now() - DAYS_BACK * 864e5);
   const to = new Date(Date.now() + DAYS_AHEAD * 864e5);
-  const events = expandIcs(res.getContentText(), from, to, appsScriptTz_);
-  if (!events.length) { console.log('Aucun événement trouvé dans le calendrier, rien n\'est modifié.'); return; }
+  const KINDS = ['reunion', 'club', 'job', 'examen', 'loisir', 'perso'];
+  const kindOf = (v) => (KINDS.indexOf((v || '').trim()) >= 0 ? v.trim() : 'loisir');
 
-  const rows = events.map((e) => ({
-    user_id: p.USER_ID,
-    uid: e.uid,
-    source: 'ics',
-    kind: /exam/i.test(e.title) ? 'examen' : 'cours',
-    title: e.title,
-    location: e.location || null,
-    starts_at: e.start.toISOString(),
-    ends_at: e.end.toISOString(),
-    synced_at: runStart,
-  }));
+  const sources = [];
+  urls_(p.ICS_URL).forEach((u) => sources.push({ url: u, kind: 'cours', prefix: '', optional: false }));
+  urls_(p.ICS_URL_EXTRA).forEach((u, i) => sources.push({ url: u, kind: kindOf(p.ICS_EXTRA_KIND), prefix: 'extra' + (i + 1) + ':', optional: false }));
+  urls_(p.ICS_URL_OPTIONAL).forEach((u, i) => sources.push({ url: u, kind: kindOf(p.ICS_OPTIONAL_KIND), prefix: 'carte' + (i + 1) + ':', optional: true }));
+
+  const rows = {};
+  const failed = [];
+  sources.forEach((src) => {
+    const res = UrlFetchApp.fetch(src.url, { muteHttpExceptions: true, followRedirects: true });
+    if (res.getResponseCode() !== 200) {
+      // Un agenda en erreur n'empêche pas les autres d'être importés
+      const hint = /calendar\.google\.com\/calendar\/ical\/.+\/public\//.test(src.url)
+        ? ' → c\'est l\'adresse PUBLIQUE de Google Agenda : utilise l\'« Adresse secrète au format iCal »' : '';
+      failed.push('Agenda inaccessible (' + res.getResponseCode() + ') : ' + src.url.slice(0, 60) + '…' + hint);
+      return;
+    }
+    const events = expandIcs(res.getContentText(), from, to, appsScriptTz_);
+    events.forEach((e) => {
+      const uid = src.prefix + e.uid;
+      rows[uid] = {                                   // (un même identifiant n'est gardé qu'une fois)
+        user_id: p.USER_ID,
+        uid: uid,
+        source: 'ics',
+        kind: src.kind === 'cours' && /exam/i.test(e.title) ? 'examen' : src.kind,
+        title: e.title,
+        location: e.location || null,
+        starts_at: e.start.toISOString(),
+        ends_at: e.end.toISOString(),
+        optional: src.optional,                       // "à la carte" : ton choix (J'y vais) n'est jamais écrasé
+        synced_at: runStart,
+      };
+    });
+    console.log(events.length + ' événement(s) dans ' + (src.kind === 'cours' && !src.optional ? 'l\'horaire de cours' : 'l\'agenda ' + src.prefix.replace(':', '')));
+  });
+
+  const list = Object.keys(rows).map((k) => rows[k]);
+  if (!list.length) { console.log('Aucun événement trouvé dans les agendas, rien n\'est modifié.'); if (failed.length) throw new Error(failed.join(' | ')); return; }
   // "merge-duplicates" = met à jour l'heure/le lieu SANS toucher à tes statuts (raté/rattrapé) ni à tes notes
-  for (let i = 0; i < rows.length; i += 200) {
-    supabase_('post', 'events?on_conflict=user_id,uid', rows.slice(i, i + 200), 'resolution=merge-duplicates,return=minimal');
+  for (let i = 0; i < list.length; i += 200) {
+    supabase_('post', 'events?on_conflict=user_id,uid', list.slice(i, i + 200), 'resolution=merge-duplicates,return=minimal');
   }
-  // Supprime les séances qui ont disparu du calendrier (cours annulés/déplacés)
-  supabase_('delete', 'events?user_id=eq.' + p.USER_ID + '&source=eq.ics&synced_at=lt.' + encodeURIComponent(runStart) +
-    '&starts_at=gte.' + encodeURIComponent(from.toISOString()));
-  console.log(rows.length + ' séances synchronisées.');
+  // Supprime les événements qui ont disparu des agendas (cours annulés/déplacés).
+  // Si un agenda était inaccessible, on ne supprime rien (sinon ses événements disparaîtraient).
+  if (!failed.length) {
+    supabase_('delete', 'events?user_id=eq.' + p.USER_ID + '&source=eq.ics&synced_at=lt.' + encodeURIComponent(runStart) +
+      '&starts_at=gte.' + encodeURIComponent(from.toISOString()));
+  }
+  console.log(list.length + ' événements synchronisés au total.');
+  if (failed.length) throw new Error(failed.join(' | '));
+}
+
+// Un ou plusieurs liens (séparés par des espaces, des virgules ou des retours à la ligne)
+function urls_(value) {
+  return (value || '').split(/[\s,]+/).filter((u) => /^(https?|webcal):/i.test(u)).map((u) => u.replace(/^webcal:/i, 'https:'));
 }
 
 // ── 2. Newsletters Gmail ────────────────────────────────────

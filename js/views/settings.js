@@ -1,13 +1,16 @@
 // Réglages : prénom, journée type, engagements fixes, catégories du journal, examens.
 import { html, useState } from '../lib.js';
 import { Icon, PageHead, attempt } from '../ui.js';
-import { saveSettings } from '../store.js';
+import { saveSettings, setChoiceCourse } from '../store.js';
+import { courseList } from '../lib.js';
 import { db } from '../db.js';
 
 const fmtH = (m) => `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) : ''}`;
+const fmtSeries = (e) => new Intl.DateTimeFormat('fr-BE', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(e.starts_at));
 
 export function Settings({ store }) {
   const s = store.settings;
+  const courses = courseList(store.events);
   const [f, setF] = useState({
     firstName: s.firstName, dayStart: s.dayStart, dayEnd: s.dayEnd, notionName: s.notionName || '',
     examStart: s.examStart, examLabel: s.examLabel,
@@ -84,6 +87,25 @@ export function Settings({ store }) {
           </div>`)}
         <button type="button" class="link" onClick=${() => setF({ ...f, fixed: [...f.fixed, { label: '', hours: 1 }] })}><${Icon} name="plus" size=${16} /> Ajouter</button>
         <p class="muted small mt">Capacité : ${capacity} h/sem · fixes : ${fixedTotal} h · reste avant agenda : <b>${capacity - fixedTotal} h</b></p>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>Cours à choix</h2></div>
+        <p class="muted small">Coche les cours (TP ou théorie) donnés par plusieurs assistants / profs à des horaires différents.
+          Dans l'Agenda, touche ensuite une de leurs séances → « ★ En faire mon groupe habituel » : il comptera toutes les semaines.
+          Les autres groupes ne comptent pas et ne vont jamais dans « à rattraper ».</p>
+        ${courses.length ? html`
+          <ul class="check-list">
+            ${courses.map(([key, name]) => {
+              const on = key in (s.choiceCourses || {});
+              const usual = on && store.events.find((e) => e._courseKey === key && e._default);
+              return html`
+                <li><label class="check-label">
+                  <input type="checkbox" class="check" checked=${on} onChange=${() => attempt(() => setChoiceCourse(key, !on))} />
+                  <span>${name}${on && html`<small class="muted"> · ${usual ? `habituel : ${fmtSeries(usual)}` : 'groupe habituel pas encore choisi'}</small>`}</span>
+                </label></li>`;
+            })}
+          </ul>` : html`<p class="muted small">Tes cours apparaîtront ici une fois ton horaire importé.</p>`}
       </section>
 
       <section class="card">

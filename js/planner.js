@@ -12,7 +12,7 @@
 //     sans dépasser ton maximum d'heures de travail perso par jour.
 //  4. Si une tâche ne rentre pas avant sa deadline → alerte « il manque X h ».
 
-import { useMemo, addDays, startOfDay, isoDate, DAY, ON_SITE } from './lib.js';
+import { useMemo, addDays, startOfDay, isoDate, DAY, ON_SITE, counts } from './lib.js';
 
 export const PRIORITIES = {
   urgent:  { label: 'Urgent',              color: 'var(--c-red)',    days: 2,  rank: 0 },
@@ -38,6 +38,7 @@ export function busyTimes(events, settings, extra = []) {
   const busy = [];
   const onSiteByDay = {};
   for (const e of events) {
+    if (!counts(e)) continue;               // agenda à la carte : seulement si tu y vas
     const s = new Date(e.starts_at).getTime(), t = new Date(e.ends_at).getTime();
     busy.push([s - before, t + after]);
     if (ON_SITE.includes(e.kind)) (onSiteByDay[isoDate(e.starts_at)] ||= []).push([s, t]);

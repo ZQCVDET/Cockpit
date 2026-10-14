@@ -1,10 +1,10 @@
 // Agenda : semaine par semaine, ajout d'événements, statut des séances de cours.
 import {
   html, useState, KINDS, STATUS, startOfWeek, addDays, sameDay, fmtTime, fmtDay, fmtShort,
-  isoDate, hoursBetween, fmtHours, colorFor,
+  isoDate, hoursBetween, fmtHours, colorFor, counts, CHOSEN,
 } from '../lib.js';
 import { Icon, Sheet, Empty, PageHead, attempt } from '../ui.js';
-import { addEvents, updateEvent, deleteEvent } from '../store.js';
+import { addEvents, updateEvent, deleteEvent, chooseSession, setUsualGroup } from '../store.js';
 import { usePlan, PRIORITIES } from '../planner.js';
 
 // Une ligne d'événement
@@ -13,7 +13,7 @@ export function EventRow({ e, now = new Date(), onOpen, showDate }) {
   const live = new Date(e.starts_at) <= now && !past;
   const color = e.kind === 'cours' ? colorFor(e.title) : KINDS[e.kind]?.color;
   return html`
-    <li class=${`event ${past ? 'past' : ''} ${live ? 'live' : ''}`}>
+    <li class=${`event ${past ? 'past' : ''} ${live ? 'live' : ''} ${counts(e) ? '' : 'optional'}`}>
       <button class="event-btn" onClick=${() => onOpen && onOpen(e)} disabled=${!onOpen}>
         <span class="event-time">${showDate && html`<small class="cap">${fmtShort(e.starts_at)}</small>`}${fmtTime(e.starts_at)}<small>${fmtTime(e.ends_at)}</small></span>
         <span class="event-bar" style=${`background:${color}`}></span>
@@ -25,7 +25,9 @@ export function EventRow({ e, now = new Date(), onOpen, showDate }) {
           </span>
         </span>
         ${e.status === 'present' && html`<span class="tick" title="Assisté"><${Icon} name="check" size=${16} /></span>`}
-        ${e.status && e.status !== 'present' && html`<span class=${`tag ${STATUS[e.status].cls}`}>${STATUS[e.status].label}</span>`}
+        ${e.status && e.status !== 'present' && e.status !== 'skip' && html`<span class=${`tag ${STATUS[e.status].cls}`}>${STATUS[e.status].label}</span>`}
+        ${e.optional && !e.status && html`<span class="tag tag-soft">À la carte</span>`}
+        ${e._choice && !CHOSEN.includes(e.status) && html`<span class=${`tag ${e._counted ? 'tag-green' : e._decided ? 'tag-soft' : 'tag-accent'}`}>${e._counted ? 'Mon groupe' : e._decided ? 'Pas retenu' : 'À choisir'}</span>`}
       </button>
     </li>`;
 }
@@ -51,7 +53,23 @@ function EventSheet({ e, onClose }) {
       <p class="muted">${fmtDay(e.starts_at)} · ${fmtTime(e.starts_at)}–${fmtTime(e.ends_at)} (${fmtHours(hoursBetween(e.starts_at, e.ends_at))})</p>
       ${e.location && html`<p class="muted with-icon"><${Icon} name="pin" size=${14} /> ${e.location}</p>`}
 
-      ${isCourse && html`
+      ${e._choice && !['present', 'rate', 'rattrape'].includes(e.status) && html`
+        <div class="field">
+          <span class="label">Cours à choix</span>
+          <p class="muted small">${e._alternatives > 1 ? `${e._alternatives} groupes / horaires cette semaine pour ${e._course}. ` : ''}${
+            e._counted ? (e._default && !e.status ? 'C\'est ton groupe habituel : compté chaque semaine, à pointer après la séance.' : 'Tu y vas cette semaine : compté dans ton planning, à pointer après la séance.')
+            : e.status === 'skip' ? 'Tu n\'y vas pas cette semaine : ni dans ton temps occupé, ni dans les cours à rattraper.'
+            : e._decided ? 'Pas retenue cette semaine.'
+            : 'À choisir : tant que tu n\'as pas choisi, elle ne compte pas dans ton planning.'}</p>
+          <div class="seg">
+            <button class=${e._counted ? 'on green' : ''} onClick=${() => attempt(() => chooseSession(e, true), 'C\'est noté').then(onClose)}>J'y vais</button>
+            <button class=${!e._counted && e._decided ? 'on' : ''} onClick=${() => attempt(() => chooseSession(e, false), 'Retiré de ton planning').then(onClose)}>Je n'y vais pas</button>
+          </div>
+          <button class="link small" onClick=${() => attempt(() => setUsualGroup(e, !e._default), e._default ? 'Plus de groupe habituel' : 'Groupe habituel enregistré : compté toutes les semaines').then(onClose)}>
+            ${e._default ? 'Ce n\'est plus mon groupe habituel' : '★ En faire mon groupe habituel (toutes les semaines)'}</button>
+        </div>`}
+
+      ${isCourse && (!e._choice || e._counted) && html`
         <div class="field">
           <span class="label">Présence</span>
           <p class="muted small">${past && !e.status ? 'Pas encore pointée.' : !past ? 'Tu peux déjà marquer une séance que tu sais que tu vas rater.' : 'Touche à nouveau le statut actif pour l\'effacer.'}</p>
@@ -59,6 +77,18 @@ function EventSheet({ e, onClose }) {
             <button class=${e.status === 'present' ? 'on' : ''} onClick=${() => setStatus('present')}>J'y étais</button>
             <button class=${e.status === 'rate' ? 'on red' : ''} onClick=${() => setStatus('rate')}>Raté</button>
             <button class=${e.status === 'rattrape' ? 'on green' : ''} onClick=${() => setStatus('rattrape')}>Rattrapé</button>
+          </div>
+        </div>`}
+
+      ${e.optional && html`
+        <div class="field">
+          <span class="label">Agenda à la carte</span>
+          <p class="muted small">${e.status === 'going'
+            ? 'Compté dans ton temps occupé : le planning évite ce créneau.'
+            : 'Pas compté pour l\'instant : ton temps libre et ton planning l\'ignorent.'}</p>
+          <div class="seg">
+            <button class=${e.status === 'going' ? 'on green' : ''} onClick=${() => attempt(() => updateEvent(e.id, { status: 'going' }), 'Ajouté à ton planning').then(onClose)}>J'y vais</button>
+            <button class=${e.status !== 'going' ? 'on' : ''} onClick=${() => attempt(() => updateEvent(e.id, { status: null }), 'Retiré de ton planning').then(onClose)}>Je n'y vais pas</button>
           </div>
         </div>`}
 
@@ -74,7 +104,7 @@ function EventSheet({ e, onClose }) {
           </button>`}
         <button class="btn primary" onClick=${() => attempt(() => updateEvent(e.id, { notes }), 'Enregistré').then(onClose)}>Enregistrer</button>
       </div>
-      ${e.source === 'ics' && html`<p class="muted small">Importé depuis ton calendrier de cours : l'horaire se met à jour automatiquement.</p>`}
+      ${e.source === 'ics' && html`<p class="muted small">Importé depuis ${isCourse ? 'ton horaire de cours' : 'un de tes agendas'} : se met à jour automatiquement.</p>`}
     </${Sheet}>`;
 }
 
@@ -128,9 +158,15 @@ export function Agenda({ store }) {
   const [week, setWeek] = useState(startOfWeek(new Date()));
   const [adding, setAdding] = useState(null);
   const days = [...Array(7)].map((_, i) => addDays(week, i));
-  const inWeek = store.events.filter((e) => new Date(e.starts_at) >= week && new Date(e.starts_at) < addDays(week, 7));
+  const [showOptional, setShowOptional] = useState(() => { try { return localStorage.getItem('cockpit-show-optional') !== '0'; } catch { return true; } });
+  const toggleOptional = () => {
+    setShowOptional(!showOptional);
+    try { localStorage.setItem('cockpit-show-optional', showOptional ? '0' : '1'); } catch { /* ignore */ }
+  };
+  const hasOptional = store.events.some((e) => !counts(e));
+  const inWeek = store.events.filter((e) => new Date(e.starts_at) >= week && new Date(e.starts_at) < addDays(week, 7) && (showOptional || counts(e)));
   const plan = usePlan(store);
-  const total = (k) => inWeek.filter((e) => e.kind === k).reduce((a, e) => a + hoursBetween(e.starts_at, e.ends_at), 0);
+  const total = (k) => inWeek.filter((e) => e.kind === k && counts(e)).reduce((a, e) => a + hoursBetween(e.starts_at, e.ends_at), 0);
   const isThisWeek = sameDay(week, startOfWeek(new Date()));
 
   return html`
@@ -142,11 +178,17 @@ export function Agenda({ store }) {
       <button class="icon-btn" onClick=${() => setWeek(addDays(week, -7))} aria-label="Semaine précédente"><${Icon} name="left" /></button>
       <button class=${`btn ghost small ${isThisWeek ? 'hidden' : ''}`} onClick=${() => setWeek(startOfWeek(new Date()))}>Cette semaine</button>
       <div class="week-sum">
-        ${['cours', 'reunion', 'club', 'job'].map((k) => total(k) > 0 && html`
+        ${['cours', 'reunion', 'club', 'job', 'loisir'].map((k) => total(k) > 0 && html`
           <span><i style=${`background:${KINDS[k].color}`}></i>${KINDS[k].label} ${fmtHours(total(k))}</span>`)}
       </div>
       <button class="icon-btn" onClick=${() => setWeek(addDays(week, 7))} aria-label="Semaine suivante"><${Icon} name="right" /></button>
     </div>
+    ${hasOptional && html`
+      <div class="optional-toggle">
+        <button class=${`chip ${showOptional ? 'on' : ''}`} onClick=${toggleOptional} aria-pressed=${showOptional}>
+          <i style="background:var(--c-pink)"></i>Options non retenues : ${showOptional ? 'affichées' : 'masquées'}</button>
+        <span class="muted small">Agenda à la carte et cours à choix : touche-les puis « J'y vais » pour les compter.</span>
+      </div>`}
 
     <div class="days">
       ${days.map((d) => {

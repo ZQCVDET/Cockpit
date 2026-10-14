@@ -76,7 +76,7 @@ function supabaseBackend() {
 
 // ── Mode démo (localStorage) ────────────────────────────────
 function demoBackend() {
-  const KEY = 'cockpit-demo-v3';
+  const KEY = 'cockpit-demo-v7';
   let state;
   try { state = JSON.parse(localStorage.getItem(KEY)); } catch { state = null; }
   if (!state) state = demoData();
@@ -118,4 +118,6 @@ function demoBackend() {
   };
 }
 
-export const db = SUPABASE_URL && SUPABASE_ANON_KEY ? supabaseBackend() : demoBackend();
+// Ajoute ?demo à l'adresse pour essayer l'app avec des données d'exemple (sans toucher à tes vraies données)
+const forceDemo = new URLSearchParams(location.search).has('demo');
+export const db = SUPABASE_URL && SUPABASE_ANON_KEY && !forceDemo ? supabaseBackend() : demoBackend();

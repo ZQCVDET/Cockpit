@@ -1,7 +1,7 @@
 // Cours : pointe tes présences, suis ce qu'il reste à rattraper, vois ce qui est fait.
 import {
   html, useState, useMemo, colorFor, fmtDay, fmtTime, hoursBetween, fmtHours, isoDate,
-  isPast, toPoint, STATUS,
+  isPast, toPoint, STATUS, counts,
 } from '../lib.js';
 import { Icon, Empty, PageHead, attempt } from '../ui.js';
 import { updateEvents } from '../store.js';
@@ -113,7 +113,7 @@ function ByCourse({ sessions }) {
   const now = new Date();
   const courses = useMemo(() => {
     const map = new Map();
-    for (const e of sessions) { if (!map.has(e.title)) map.set(e.title, []); map.get(e.title).push(e); }
+    for (const e of sessions) { const k = e._course || e.title; if (!map.has(k)) map.set(k, []); map.get(k).push(e); }
     return [...map.entries()].map(([title, list]) => {
       const count = (s) => list.filter((e) => e.status === s).length;
       const past = list.filter((e) => isPast(e, now)).length;
@@ -160,7 +160,8 @@ function ByCourse({ sessions }) {
 
 export function Courses({ store }) {
   const now = new Date();
-  const sessions = store.events.filter((e) => e.kind === 'cours');
+  // Séances d'exercices à choix : seules celles que tu as retenues comptent
+  const sessions = store.events.filter((e) => e.kind === 'cours' && counts(e));
   const lists = {
     pointer: sessions.filter((e) => toPoint(e, now)).reverse(),                       // plus récentes d'abord
     rattraper: sessions.filter((e) => e.status === 'rate'),                           // plus anciennes d'abord
