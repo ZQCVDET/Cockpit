@@ -165,9 +165,33 @@ function latestStart(t, events, settings, now) {
   return null; // impossible même en s'y mettant maintenant
 }
 
+// ── Cours ratés → tâches "Rattraper …" ─────────────────────
+// Créées automatiquement à partir des séances marquées "Raté" (rien à saisir).
+// Durée = durée de la séance · deadline = 7 jours après la séance (au plus tôt dans 2 jours) · urgence Important.
+// Quand tu marques la tâche faite, la séance passe en "Rattrapé" (et inversement).
+const fmtDate = (d) => new Intl.DateTimeFormat('fr-BE', { weekday: 'short', day: 'numeric', month: 'short' }).format(d);
+export function catchupTasks(events, settings, now = new Date()) {
+  const progress = settings.catchupProgress || {};
+  const category = settings.categories?.find((c) => /tude|cours/i.test(c.name))?.name || 'Étude / cours';
+  return events.filter((e) => e.kind === 'cours' && e.status === 'rate').map((e) => {
+    const start = new Date(e.starts_at);
+    const due = new Date(Math.max(addDays(start, settings.catchupDays ?? 7), addDays(startOfDay(now), 2)));
+    return {
+      id: `catchup:${e.id}`, eventId: e.id, source: 'catchup', status: 'todo',
+      title: `Rattraper : ${e.title}`, category, priority: 'haute',
+      due_date: isoDate(due),
+      estimate_minutes: Math.round((new Date(e.ends_at) - start) / MIN),
+      progress_minutes: progress[e.id] || 0,
+      notes: `Séance ratée du ${fmtDate(start)}`,
+    };
+  });
+}
+// Toutes les tâches : celles que tu as créées / importées + les rattrapages de cours
+export const allTasks = (store) => [...store.tasks, ...catchupTasks(store.events, store.settings)];
+
 // Utilisable dans n'importe quel écran
 export const usePlan = (store) => useMemo(
-  () => plan(store.tasks, store.events, store.settings),
+  () => plan(allTasks(store), store.events, store.settings),
   [store.tasks, store.events, store.settings],
 );
 

@@ -3,8 +3,8 @@ import {
   html, useState, fmtDay, fmtShort, fmtTime, fmtMinutes, isoDate, addDays, sameDay,
 } from '../lib.js';
 import { Icon, Sheet, Empty, PageHead, attempt, toast } from '../ui.js';
-import { addTask, updateTask, deleteTask, addProgress, saveSettings } from '../store.js';
-import { PRIORITIES, usePlan, isDone, remaining, daysLeft, prune } from '../planner.js';
+import { addTask, updateTask, deleteTask, addProgress, saveSettings, updateEvent } from '../store.js';
+import { PRIORITIES, usePlan, isDone, remaining, daysLeft, prune, allTasks } from '../planner.js';
 import { importCsv } from '../csv.js';
 
 const ESTIMATES = [15, 30, 45, 60, 90, 120, 180, 240, 360, 480, 600, 900, 1200];
@@ -92,11 +92,37 @@ function TaskSheet({ task, settings, onClose }) {
     </${Sheet}>`;
 }
 
+// Tâche de rattrapage d'un cours raté (créée automatiquement)
+function CatchupSheet({ task, onClose }) {
+  const [prog, setProg] = useState(30);
+  const done = (status, msg) => attempt(() => updateEvent(task.eventId, { status }), msg).then(onClose);
+  return html`
+    <${Sheet} title=${task.title} onClose=${onClose}>
+      <p class="muted">${task.notes} · à rattraper avant le ${fmtShort(task.due_date + 'T12:00')}</p>
+      <p class="muted small">Temps prévu : ${fmtMinutes(task.estimate_minutes)} (durée de la séance)${task.progress_minutes ? ` · déjà ${fmtMinutes(task.progress_minutes)} faites` : ''}.
+        Le planning le place automatiquement dans tes créneaux libres.</p>
+      <div class="field mt">
+        <span class="label">J'ai avancé dessus</span>
+        <div class="item-row">
+          <select onChange=${(e) => setProg(Number(e.target.value))} aria-label="Durée">
+            ${[15, 30, 45, 60, 90, 120].map((m) => html`<option value=${m} selected=${m === prog}>${fmtMinutes(m)}</option>`)}
+          </select>
+          <button type="button" class="btn" onClick=${() => attempt(() => addProgress(task, prog), `${fmtMinutes(prog)} ajoutées`).then(onClose)}>Ajouter</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn ghost" onClick=${() => done('present', 'Séance marquée comme suivie')}>J'y étais finalement</button>
+        <button class="btn primary" onClick=${() => done('rattrape', 'Bien joué, cours rattrapé !')}><${Icon} name="check" size=${16} /> Rattrapé</button>
+      </div>
+    </${Sheet}>`;
+}
+
 function TaskRow({ t, info, onOpen, store }) {
   const due = dueLabel(t);
   const done = isDone(t);
   const toggle = (e) => {
     e.stopPropagation();
+    if (t.source === 'catchup') return attempt(() => updateEvent(t.eventId, { status: 'rattrape' }), 'Bien joué, cours rattrapé !');
     attempt(() => updateTask(t.id, done ? { status: 'todo', done_at: null } : { status: 'done', done_at: new Date().toISOString() }), done ? 'Remise à faire' : 'Bravo, tâche terminée !');
   };
   let planText = null;
@@ -116,11 +142,11 @@ function TaskRow({ t, info, onOpen, store }) {
       <button class="task-check" onClick=${toggle} aria-label=${done ? 'Remettre à faire' : 'Marquer comme terminée'}
         style=${`--p:${PRIORITIES[t.priority]?.color}`}>${done && html`<${Icon} name="check" size=${14} />`}</button>
       <button class="task-main" onClick=${() => onOpen(t)}>
-        <span class="task-title">${t.title}${t.source === 'notion' && html` <span class="tag tag-soft">Notion</span>`}</span>
+        <span class="task-title">${t.title}${t.source === 'notion' && html` <span class="tag tag-soft">Notion</span>`}${t.source === 'catchup' && html` <span class="tag tag-red">Cours raté</span>`}</span>
         <span class="task-meta">
           ${due && html`<span class=${due.cls}>${due.text}</span>`}
           ${t.estimate_minutes && !done && html`<span>${fmtMinutes(remaining(t))} restantes</span>`}
-          ${t.notes?.startsWith('Projet : ') ? html`<span>${t.notes.slice(9).split('\n')[0]}</span>` : t.category && html`<span>${t.category}</span>`}
+          ${t.source === 'catchup' ? html`<span>${t.notes}</span>` : t.notes?.startsWith('Projet : ') ? html`<span>${t.notes.slice(9).split('\n')[0]}</span>` : t.category && html`<span>${t.category}</span>`}
         </span>
         ${planText && html`<span class="task-plan small">${planText}</span>`}
         ${pct > 0 && !done && html`<span class="progress thin"><span style=${`width:${pct}%;background:${PRIORITIES[t.priority]?.color}`}></span></span>`}
@@ -129,7 +155,7 @@ function TaskRow({ t, info, onOpen, store }) {
 }
 
 function TodoList({ store, plan, onOpen }) {
-  const open = store.tasks.filter((t) => !isDone(t));
+  const open = allTasks(store).filter((t) => !isDone(t));
   if (!open.length) return html`<section class="card"><${Empty}>Rien à faire. Ajoute une tâche avec le bouton « Ajouter ».</${Empty}></section>`;
   return Object.entries(PRIORITIES).map(([k, p]) => {
     const list = open.filter((t) => (t.priority || 'normale') === k)
@@ -255,7 +281,7 @@ export function Tasks({ store }) {
   const [tab, setTab] = useState('todo');
   const [open, setOpen] = useState(null);
   const done = store.tasks.filter(isDone).sort((a, b) => (b.done_at || '').localeCompare(a.done_at || ''));
-  const totalLeft = store.tasks.filter((t) => !isDone(t)).reduce((a, t) => a + remaining(t), 0);
+  const totalLeft = allTasks(store).filter((t) => !isDone(t)).reduce((a, t) => a + remaining(t, store.settings.planDefaultEstimate ?? 60), 0);
 
   const onImport = async (e) => {
     const file = e.target.files[0]; e.target.value = '';
@@ -263,7 +289,7 @@ export function Tasks({ store }) {
     try {
       const r = await importCsv(await file.text(), store);
       const skipped = [r.closed && `${r.closed} terminée(s)/annulée(s)`, r.others && `${r.others} d'autres personnes`, r.duplicates && `${r.duplicates} déjà présente(s)`].filter(Boolean).join(', ');
-      toast(`${r.added} tâche(s) importée(s)${skipped ? ` · ignorées : ${skipped}` : ''}${r.added ? '. Estime leur durée pour les planifier.' : ''}`);
+      toast(`${r.added} tâche(s) importée(s)${r.updated ? `, ${r.updated} complétée(s)` : ''}${skipped ? ` · ignorées : ${skipped}` : ''}`);
     } catch (err) { toast('Erreur : ' + err.message); }
   };
 
@@ -300,5 +326,7 @@ export function Tasks({ store }) {
         <label class="link small">importe le fichier<input type="file" accept=".csv,text/csv" hidden onChange=${onImport} /></label>.
       </p>`}
 
-    ${open && html`<${TaskSheet} task=${open} settings=${store.settings} onClose=${() => setOpen(null)} />`}`;
+    ${open && (open.source === 'catchup'
+      ? html`<${CatchupSheet} task=${open} onClose=${() => setOpen(null)} />`
+      : html`<${TaskSheet} task=${open} settings=${store.settings} onClose=${() => setOpen(null)} />`)}`;
 }

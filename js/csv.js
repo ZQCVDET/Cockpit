@@ -2,7 +2,7 @@
 // Colonnes reconnues automatiquement : titre ("Task name", "Nom", "Tâche"…), date ("Due", "Échéance"…),
 // statut ("Status", "État"…), urgence ("Priority"…), personne assignée ("Assignee"…) et projet.
 // Si une colonne "personne assignée" existe, seules TES tâches sont importées (ton nom : Réglages).
-import { addTask, saveSettings } from './store.js';
+import { addTask, updateTask, saveSettings } from './store.js';
 
 const MONTHS = {
   jan: 1, janv: 1, janvier: 1, january: 1, feb: 2, fev: 2, fevr: 2, fevrier: 2, february: 2, mar: 3, mars: 3, march: 3,
@@ -42,14 +42,24 @@ export function parseDate(raw) {
   return null;
 }
 
+// "2h", "1 h 30", "1h30", "90 min", "90" (minutes) → minutes
+export function parseDuration(raw) {
+  const s = strip(raw || '').replace(',', '.');
+  let m;
+  if ((m = s.match(/(\d+(?:\.\d+)?)\s*h\s*(\d+)?/))) return Math.round(parseFloat(m[1]) * 60 + (m[2] ? Number(m[2]) : 0));
+  if ((m = s.match(/(\d+)\s*(min|mn|m)\b/))) return Number(m[1]);
+  if ((m = s.match(/^\s*(\d+)\s*$/))) return Number(m[1]);
+  return null;
+}
+
 const PRIO = [[/urgent|critique|asap/, 'urgent'], [/haut|high|important/, 'haute'], [/bas|low|faible/, 'basse'], [/moy|medium|normal/, 'normale']];
 
 export const CLOSED = /done|termin|fait|complet|finished|archiv|cancel|annul|abandon/;
 
-// Renvoie { added, closed, others, duplicates }
+// Renvoie { added, updated, closed, others, duplicates }
 export async function importCsv(text, store) {
   const [head, ...rows] = parse(text);
-  const res = { added: 0, closed: 0, others: 0, duplicates: 0 };
+  const res = { added: 0, updated: 0, closed: 0, others: 0, duplicates: 0 };
   if (!head) return res;
   const h = head.map((x) => strip(x).trim());
   const find = (re) => h.findIndex((x) => re.test(x));
@@ -61,6 +71,7 @@ export async function importCsv(text, store) {
   const iPrio = find(/priorit|urgence|priority/);
   const iWho = find(/assign|responsable|personne|owner/);
   const iProject = find(/^(projet|project|evenement|event)s?$/);
+  const iEst = find(/estim|duree|temps|duration/);
 
   // Filtre "mes tâches" : on demande ton nom Notion la première fois
   let me = store.settings.notionName;
@@ -69,7 +80,7 @@ export async function importCsv(text, store) {
     if (me) await saveSettings({ notionName: me });
   }
 
-  const exists = new Set(store.tasks.map((t) => `${strip(t.title)}|${t.due_date || ''}`));
+  const exists = new Map(store.tasks.map((t) => [`${strip(t.title)}|${t.due_date || ''}`, t]));
   for (const r of rows) {
     const title = (r[iTitle] || '').trim();
     if (!title) continue;
@@ -77,16 +88,25 @@ export async function importCsv(text, store) {
     if (iStatus >= 0 && CLOSED.test(strip(r[iStatus] || ''))) { res.closed++; continue; }
     const due = iDate >= 0 ? parseDate(r[iDate]) : null;
     const key = `${strip(title)}|${due || ''}`;
-    if (exists.has(key)) { res.duplicates++; continue; }
     const pr = iPrio >= 0 ? PRIO.find(([re]) => re.test(strip(r[iPrio] || '')))?.[1] : null;
+    const est = iEst >= 0 ? parseDuration(r[iEst]) : null;
+    if (exists.has(key)) {
+      // Déjà importée : on complète seulement ce qui manque (durée, urgence), sans écraser tes choix
+      const t = exists.get(key);
+      if (t.id && est && !t.estimate_minutes) {
+        await updateTask(t.id, { estimate_minutes: est, ...(pr && (t.priority || 'normale') === 'normale' ? { priority: pr } : {}) });
+        res.updated++;
+      } else res.duplicates++;
+      continue;
+    }
     const project = iProject >= 0 ? (r[iProject] || '').replace(/\s*\(https?:[^)]*\)\s*/g, '').replace(/\s+/g, ' ').trim() : '';
     const link = iProject >= 0 ? (r[iProject] || '').match(/\((https?:[^)]*)\)/)?.[1] : null;
     await addTask({
-      title, due_date: due, priority: pr || 'normale', estimate_minutes: null, source: 'notion',
+      title, due_date: due, priority: pr || 'normale', estimate_minutes: est || null, source: 'notion',
       category: store.settings.categories[0]?.name || null,
       notes: project ? `Projet : ${project}` : null, external_url: link || null,
     });
-    exists.add(key); res.added++;
+    exists.set(key, { title }); res.added++;
   }
   return res;
 }

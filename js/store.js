@@ -119,7 +119,16 @@ export async function deleteTask(id) {
 }
 // "J'ai avancé de X min" : met à jour la tâche ET ajoute la session au journal
 export async function addProgress(task, minutes) {
-  await updateTask(task.id, { progress_minutes: (task.progress_minutes || 0) + minutes });
+  if (task.source === 'catchup') {
+    // Rattrapage de cours : l'avancement est gardé dans les réglages ; une fois fini → séance "Rattrapé"
+    const prog = { ...(state.settings.catchupProgress || {}) };
+    const total = (prog[task.eventId] || 0) + minutes;
+    if (total >= task.estimate_minutes) { delete prog[task.eventId]; await updateEvent(task.eventId, { status: 'rattrape' }); }
+    else prog[task.eventId] = total;
+    await saveSettings({ catchupProgress: prog });
+  } else {
+    await updateTask(task.id, { progress_minutes: (task.progress_minutes || 0) + minutes });
+  }
   await addLog({ category: task.category, subject: task.title, minutes, day: new Date().toISOString().slice(0, 10), note: null });
 }
 

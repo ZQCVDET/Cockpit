@@ -5,7 +5,7 @@ import {
 } from '../lib.js';
 import { StackBar, Icon } from '../ui.js';
 import { EventList } from './agenda.js';
-import { usePlan, isDone, PRIORITIES } from '../planner.js';
+import { usePlan, isDone, PRIORITIES, allTasks } from '../planner.js';
 
 export function Home({ store, go }) {
   const { events, logs, newsletters, settings } = store;
@@ -28,7 +28,7 @@ export function Home({ store, go }) {
   const plan = usePlan(store);
   const todayKey = isoDate(now);
   const todayBlocks = plan.blocks.filter((bl) => bl.day === todayKey);
-  const openTasks = store.tasks.filter((t) => !isDone(t)).length;
+  const openTasks = allTasks(store).filter((t) => !isDone(t)).length;
 
   const hour = now.getHours();
   const hello = hour < 6 ? 'Bonne nuit' : hour < 18 ? 'Bonjour' : 'Bonsoir';
