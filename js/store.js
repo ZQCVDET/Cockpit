@@ -2,7 +2,7 @@
 // Chaque écran lit l'état via useStore() et se met à jour automatiquement.
 
 import { db } from './db.js';
-import { useState, useEffect, DEFAULT_SETTINGS, addDays, markChoices } from './lib.js';
+import { useState, useEffect, DEFAULT_SETTINGS, addDays, markChoices, applyAliases } from './lib.js';
 
 const state = {
   ready: false,
@@ -15,7 +15,8 @@ const state = {
 };
 const listeners = new Set();
 const emit = () => {
-  markChoices(state.events, state.settings); // repère les cours à choix (plusieurs groupes / profs)
+  applyAliases(state.events, state.settings.courseAliases); // noms de cours lisibles (Réglages)
+  markChoices(state.events, state.settings);                // repère les cours à choix (plusieurs groupes / profs)
   listeners.forEach((fn) => fn({ ...state }));
 };
 

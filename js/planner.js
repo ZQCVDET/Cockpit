@@ -22,7 +22,8 @@ export const PRIORITIES = {
 };
 
 export const isDone = (t) => t.status === 'done' || t.external_done;
-export const remaining = (t) => Math.max(0, (t.estimate_minutes || 0) - (t.progress_minutes || 0));
+// Temps restant. Une tâche pas encore estimée compte pour `def` minutes (Réglages → durée par défaut)
+export const remaining = (t, def = 0) => Math.max(0, (t.estimate_minutes || def) - (t.progress_minutes || 0));
 export const dueEnd = (t) => (t.due_date ? new Date(`${t.due_date}T23:59:59`) : null);
 export const daysLeft = (t, now = new Date()) => (t.due_date ? Math.round((startOfDay(new Date(`${t.due_date}T12:00`)) - startOfDay(now)) / DAY) : null);
 
@@ -103,12 +104,13 @@ export function plan(tasks, events, settings, now = new Date()) {
 
   const slots = freeSlots(events, settings, now, HORIZON_DAYS, pinBusy).map((s) => ({ ...s, cursor: s.start }));
   const effDue = (t) => dueEnd(t)?.getTime() ?? now.getTime() + PRIORITIES[t.priority || 'normale'].days * DAY;
-  const todo = open.filter((t) => remaining(t) > 0)
+  const def = settings.planDefaultEstimate ?? 60;
+  const todo = open.filter((t) => remaining(t, def) > 0)
     .sort((a, b) => effDue(a) - effDue(b) || PRIORITIES[a.priority || 'normale'].rank - PRIORITIES[b.priority || 'normale'].rank);
 
   const info = {};
   for (const t of todo) {
-    let need = Math.max(0, remaining(t) - (pinnedMin[t.id] || 0));
+    let need = Math.max(0, remaining(t, def) - (pinnedMin[t.id] || 0));
     const limit = dueEnd(t)?.getTime() ?? Infinity;
     for (const s of slots) {
       if (need <= 0) break;
@@ -150,7 +152,7 @@ function latestStart(t, events, settings, now) {
   const due = dueEnd(t).getTime();
   const days = Math.max(1, Math.ceil((due - now.getTime()) / DAY) + 1);
   const slots = freeSlots(events, settings, now, days).filter((s) => s.start < due).reverse();
-  let need = remaining(t);
+  let need = remaining(t, settings.planDefaultEstimate ?? 60);
   const used = {};
   for (const s of slots) {
     const end = Math.min(s.end, due);

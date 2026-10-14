@@ -2,7 +2,7 @@
 import { html, useState } from '../lib.js';
 import { Icon, PageHead, attempt, toast } from '../ui.js';
 import { saveSettings, setChoiceCourse } from '../store.js';
-import { courseList } from '../lib.js';
+import { courseList, courseName } from '../lib.js';
 import { db } from '../db.js';
 
 const fmtH = (m) => `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) : ''}`;
@@ -11,12 +11,17 @@ const fmtSeries = (e) => new Intl.DateTimeFormat('fr-BE', { weekday: 'long', hou
 export function Settings({ store }) {
   const s = store.settings;
   const courses = courseList(store.events);
+  // Intitulés d'origine de l'horaire → nom affiché (pour vérifier le renommage)
+  const rawCourses = [...new Map(store.events.filter((e) => e.kind === 'cours')
+    .map((e) => [courseName(e._rawTitle || e.title), e._alias ? courseName(e._alias) : ''])).entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]));
   const [f, setF] = useState({
     firstName: s.firstName, dayStart: s.dayStart, dayEnd: s.dayEnd, notionName: s.notionName || '',
     examStart: s.examStart, examLabel: s.examLabel,
     planMaxPerDay: s.planMaxPerDay, planBlockMax: s.planBlockMax,
     planBefore: s.planBefore ?? s.planBuffer ?? 15, planAfter: s.planAfter ?? 45, planCommute: s.planCommute ?? 30,
     fixed: s.fixed.map((x) => ({ ...x })), categories: s.categories.map((x) => ({ ...x })),
+    courseAliases: (s.courseAliases || []).map((x) => ({ ...x })), planDefaultEstimate: s.planDefaultEstimate ?? 60,
   });
   const set = (k, num) => (e) => setF({ ...f, [k]: num ? Number(e.target.value) : e.target.value });
   const setItem = (list, i, k) => (e) => {
@@ -32,6 +37,7 @@ export function Settings({ store }) {
       ...f,
       fixed: f.fixed.filter((x) => x.label.trim()),
       categories: f.categories.filter((x) => x.name.trim()),
+      courseAliases: f.courseAliases.filter((x) => x.match.trim() && x.name.trim()),
     };
     attempt(() => saveSettings(clean), 'Réglages enregistrés');
   };
@@ -97,6 +103,24 @@ export function Settings({ store }) {
       </section>
 
       <section class="card">
+        <div class="card-head"><h2>Noms des cours</h2></div>
+        <p class="muted small">Si l'intitulé de ton horaire contient le texte de gauche (par ex. le code du cours), l'app affiche le nom de droite.
+          La mention TP / Exercices / Théorie est ajoutée automatiquement.</p>
+        ${f.courseAliases.map((x, i) => html`
+          <div class="item-row">
+            <input value=${x.match} onInput=${setItem('courseAliases', i, 'match')} placeholder="GEST-S403" aria-label="Texte à reconnaître" class="code" />
+            <input value=${x.name} onInput=${setItem('courseAliases', i, 'name')} placeholder="Nom affiché" aria-label="Nom affiché" />
+            <button type="button" class="icon-btn small" onClick=${() => removeItem('courseAliases', i)} aria-label="Retirer"><${Icon} name="x" size=${16} /></button>
+          </div>`)}
+        <button type="button" class="link" onClick=${() => setF({ ...f, courseAliases: [...f.courseAliases, { match: '', name: '' }] })}><${Icon} name="plus" size=${16} /> Ajouter</button>
+        ${rawCourses.length > 0 && html`
+          <p class="label mt">Dans ton horaire (${rawCourses.length})</p>
+          <ul class="raw-list">
+            ${rawCourses.map(([raw, shown]) => html`<li class=${shown ? '' : 'unmatched'}><span>${raw}</span>${shown ? html` → <b>${shown}</b>` : html` <em>pas renommé</em>`}</li>`)}
+          </ul>`}
+      </section>
+
+      <section class="card">
         <div class="card-head"><h2>Cours à choix</h2></div>
         <p class="muted small">Coche les cours (TP ou théorie) donnés par plusieurs assistants / profs à des horaires différents.
           Dans l'Agenda, touche ensuite une de leurs séances → « ★ En faire mon groupe habituel » : il comptera toutes les semaines.
@@ -125,6 +149,8 @@ export function Settings({ store }) {
             <select onChange=${set('planBlockMax', true)}>${[45, 60, 90, 120, 180].map((m) => html`<option value=${m} selected=${m === f.planBlockMax}>${m < 60 ? m + ' min' : m / 60 + ' h'}</option>`)}</select></label>
         </div>
         <p class="muted small">Max / jour : heures de travail perso proposées au maximum par jour. Bloc max : durée d'une session de travail avant une pause.</p>
+        <label class="field mt"><span class="label">Tâche pas encore estimée : durée supposée</span>
+          <select onChange=${set('planDefaultEstimate', true)}>${[30, 45, 60, 90, 120].map((m) => html`<option value=${m} selected=${m === f.planDefaultEstimate}>${m < 60 ? m + ' min' : fmtH(m)}</option>`)}</select></label>
 
         <p class="label mt">Tes pauses (le planning ne te met pas au travail pendant ce temps)</p>
         <div class="grid3">

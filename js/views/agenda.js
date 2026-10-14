@@ -1,7 +1,7 @@
 // Agenda : semaine par semaine, ajout d'événements, statut des séances de cours.
 import {
   html, useState, KINDS, STATUS, startOfWeek, addDays, sameDay, fmtTime, fmtDay, fmtShort,
-  isoDate, hoursBetween, fmtHours, colorFor, counts, CHOSEN,
+  isoDate, hoursBetween, fmtHours, colorFor, counts, CHOSEN, groupInfo,
 } from '../lib.js';
 import { Icon, Sheet, Empty, PageHead, attempt } from '../ui.js';
 import { addEvents, updateEvent, deleteEvent, chooseSession, setUsualGroup } from '../store.js';
@@ -20,7 +20,7 @@ export function EventRow({ e, now = new Date(), onOpen, showDate }) {
         <span class="event-main">
           <span class="event-title">${e.title}</span>
           <span class="event-meta">
-            ${KINDS[e.kind]?.label}${e.location ? ` · ${e.location}` : ''}
+            ${e._choice && groupInfo(e) ? groupInfo(e) : KINDS[e.kind]?.label}${e.location ? ` · ${e.location}` : ''}
             ${live && html` · <b class="live-dot">en cours</b>`}
           </span>
         </span>
@@ -52,6 +52,7 @@ function EventSheet({ e, onClose }) {
     <${Sheet} title=${e.title} onClose=${onClose}>
       <p class="muted">${fmtDay(e.starts_at)} · ${fmtTime(e.starts_at)}–${fmtTime(e.ends_at)} (${fmtHours(hoursBetween(e.starts_at, e.ends_at))})</p>
       ${e.location && html`<p class="muted with-icon"><${Icon} name="pin" size=${14} /> ${e.location}</p>`}
+      ${e._rawTitle && html`<p class="muted small">Intitulé de l'horaire : ${e._rawTitle}</p>`}
 
       ${e._choice && !['present', 'rate', 'rattrape'].includes(e.status) && html`
         <div class="field">

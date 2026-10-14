@@ -92,7 +92,7 @@ function TaskSheet({ task, settings, onClose }) {
     </${Sheet}>`;
 }
 
-function TaskRow({ t, info, onOpen }) {
+function TaskRow({ t, info, onOpen, store }) {
   const due = dueLabel(t);
   const done = isDone(t);
   const toggle = (e) => {
@@ -101,7 +101,10 @@ function TaskRow({ t, info, onOpen }) {
   };
   let planText = null;
   if (!done) {
-    if (!t.estimate_minutes) planText = html`<span class="amber">⏱ à estimer pour être planifiée</span>`;
+    const guess = !t.estimate_minutes;
+    if (guess && info?.first) planText = html`<span>Prévu ${fmtShort(info.first)} ${fmtTime(info.first)} <span class="amber">· durée supposée ${fmtMinutes(store.settings.planDefaultEstimate ?? 60)}, touche pour l'estimer</span></span>`;
+    else if (guess && info?.late) planText = html`<span class="red">⚠ même avec ${fmtMinutes(store.settings.planDefaultEstimate ?? 60)}, ça ne rentre pas avant la deadline</span>`;
+    else if (guess) planText = html`<span class="amber">⏱ à estimer</span>`;
     else if (remaining(t) === 0) planText = html`<span class="green">Temps prévu atteint : coche-la si elle est finie, ou augmente l'estimation</span>`;
     else if (info?.late) planText = html`<span class="red">⚠ il manque ${fmtMinutes(info.missing)} avant la deadline</span>`;
     else if (info?.first) planText = html`<span>Prévu ${fmtShort(info.first)} ${fmtTime(info.first)}${!sameDay(info.first, info.finish) ? ` → fini ${fmtShort(info.finish)}` : ''}${info.latestStart ? ` · à commencer au plus tard ${fmtShort(info.latestStart)}` : ''}</span>`;
@@ -135,7 +138,7 @@ function TodoList({ store, plan, onOpen }) {
     return html`
       <section class="card flush">
         <div class="list-head"><i style=${`background:${p.color}`}></i>${p.label}<span class="count">${list.length}</span></div>
-        <ul class="tasks">${list.map((t) => html`<${TaskRow} key=${t.id} t=${t} info=${plan.info[t.id]} onOpen=${onOpen} />`)}</ul>
+        <ul class="tasks">${list.map((t) => html`<${TaskRow} key=${t.id} store=${store} t=${t} info=${plan.info[t.id]} onOpen=${onOpen} />`)}</ul>
       </section>`;
   });
 }
@@ -274,7 +277,7 @@ export function Tasks({ store }) {
         ${plan.late.map((t) => html`
           <p><b class="red">⚠ ${t.title}</b> : il manque ${fmtMinutes(plan.info[t.id].missing)} avant le ${fmtShort(t.due_date + 'T12:00')}.
             ${plan.info[t.id].latestStart === null ? ' Libère du temps dans l\'agenda, baisse une autre tâche ou augmente ton max/jour.' : ''}</p>`)}
-        ${plan.unestimated.length > 0 && html`<p class="amber">⏱ ${plan.unestimated.length} tâche${plan.unestimated.length > 1 ? 's' : ''} sans estimation de temps : elle${plan.unestimated.length > 1 ? 's ne sont' : ' n\'est'} pas planifiée${plan.unestimated.length > 1 ? 's' : ''}.</p>`}
+        ${plan.unestimated.length > 0 && html`<p class="amber">⏱ ${plan.unestimated.length} tâche${plan.unestimated.length > 1 ? 's' : ''} sans estimation : planifiée${plan.unestimated.length > 1 ? 's' : ''} avec ${fmtMinutes(store.settings.planDefaultEstimate ?? 60)} par défaut. Touche-les pour indiquer leur vraie durée.</p>`}
       </section>`}
 
     <div class="seg tabs" role="tablist">
@@ -287,7 +290,7 @@ export function Tasks({ store }) {
     ${tab === 'plan' && html`<${PlanDays} plan=${plan} store=${store} onOpen=${setOpen} />`}
     ${tab === 'done' && html`
       <section class="card flush">
-        ${done.length ? html`<ul class="tasks">${done.map((t) => html`<${TaskRow} key=${t.id} t=${t} onOpen=${setOpen} />`)}</ul>`
+        ${done.length ? html`<ul class="tasks">${done.map((t) => html`<${TaskRow} key=${t.id} store=${store} t=${t} onOpen=${setOpen} />`)}</ul>`
           : html`<div class="pad"><${Empty}>Aucune tâche terminée pour l'instant.</${Empty}></div>`}
       </section>`}
 

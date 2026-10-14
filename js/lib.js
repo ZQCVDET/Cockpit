@@ -47,7 +47,7 @@ export const courseName = (title) => title
   .replace(/\s*[-–—:|]\s*$/, '')
   .replace(/\s+/g, ' ').trim();
 // Une "série" = un groupe précis : même titre complet, même jour de la semaine, même heure
-export const seriesOf = (e) => { const d = new Date(e.starts_at); return `${plain(e.title)}|${d.getDay()}|${d.getHours()}:${d.getMinutes()}`; };
+export const seriesOf = (e) => { const d = new Date(e.starts_at); return `${plain(e._rawTitle || e.title)}|${d.getDay()}|${d.getHours()}:${d.getMinutes()}`; };
 
 // Marque les séances des cours à choix (Réglages → Cours à choix) :
 //  e._choice  = "cours|semaine" : les alternatives d'une même semaine
@@ -60,9 +60,10 @@ export function markChoices(events, settings) {
   for (const e of events) {
     delete e._choice; delete e._counted; delete e._decided; delete e._default; delete e._course; delete e._courseKey; delete e._series;
     if (e.kind !== 'cours') continue;
-    const name = courseName(e.title), key = plain(name);
+    const raw = e._rawTitle || e.title;                     // l'intitulé d'origine (avant renommage)
+    const key = plain(courseName(raw));
     if (!(key in courses)) continue;
-    Object.assign(e, { _course: name, _courseKey: key, _series: seriesOf(e) });
+    Object.assign(e, { _course: e._alias || courseName(raw), _courseKey: key, _series: seriesOf(e) });
     e._default = courses[key] === e._series;
     e._choice = `${key}|${isoDate(startOfWeek(e.starts_at))}`;
     (groups[e._choice] ||= []).push(e);
@@ -80,9 +81,32 @@ export function markChoices(events, settings) {
 // Tous les cours (nom sans groupe/prof) présents dans l'agenda, pour la liste des Réglages
 export const courseList = (events) => {
   const m = new Map();
-  for (const e of events) if (e.kind === 'cours') { const n = courseName(e.title); m.set(plain(n), n); }
+  for (const e of events) if (e.kind === 'cours') { const raw = e._rawTitle || e.title; m.set(plain(courseName(raw)), e._alias || courseName(raw)); }
   return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 };
+
+// ── Renommage des cours ─────────────────────────────────────
+// Règle : si l'intitulé de l'horaire contient "match" (ex. le code GEST-S403), on affiche "name".
+// Le type de séance (TP, Exercices, Théorie…) est conservé pour ne pas mélanger TP et théorie.
+const SESSION_TYPES = [
+  [/\bexam/i, 'Examen'], [/\b(tp|travaux pratiques)\b/i, 'TP'], [/\bexercices?\b|\bex\.?\s/i, 'Exercices'],
+  [/\bth[eé]orie\b|\bcours magistral\b|\bcm\b/i, 'Théorie'], [/\bs[eé]minaire\b/i, 'Séminaire'], [/\blabo/i, 'Labo'],
+];
+export function applyAliases(events, rules) {
+  const list = (rules || []).filter((r) => r.match && r.name).map((r) => ({ m: plain(r.match.trim()), name: r.name.trim() }));
+  for (const e of events) {
+    const raw = e._alias && e.title === e._alias ? e._rawTitle : e.title;
+    const rule = ['cours', 'examen'].includes(e.kind) && list.find((r) => plain(raw).includes(r.m));
+    if (!rule) { e.title = raw; delete e._alias; delete e._rawTitle; continue; }
+    const type = SESSION_TYPES.find(([re]) => re.test(raw.replace(/\(.*?\)/g, ' ')))?.[1];
+    e._rawTitle = raw;
+    e._alias = type ? `${rule.name} – ${type}` : rule.name;
+    e.title = e._alias;
+  }
+  return events;
+}
+// Ce qui distingue les groupes d'un même cours : le contenu entre parenthèses de l'intitulé d'origine
+export const groupInfo = (e) => (e._rawTitle || '').match(/\(([^)]*)\)/)?.[1] || '';
 
 // ── Réglages par défaut ─────────────────────────────────────
 export const DEFAULT_SETTINGS = {
@@ -105,6 +129,15 @@ export const DEFAULT_SETTINGS = {
   examLabel: 'Session de janvier',
   timer: null,          // chrono en cours : { start, category, subject }
   choiceCourses: {},    // cours à choix : { cours: groupe habituel } (voir Réglages)
+  courseAliases: [      // noms affichés pour les cours (voir Réglages → Noms des cours)
+    { match: 'GEST-S403', name: 'Advanced Marketing Management (GEST-S403)' },
+    { match: 'GEST-S407', name: 'Operations management (GEST-S407)' },
+    { match: 'GEST-S408', name: 'Advanced Finance (GEST-S408)' },
+    { match: 'GEST-S409', name: 'Advanced accounting (GEST-S409)' },
+    { match: 'GEST-S414', name: 'Banking and asset management (GEST-S414)' },
+    { match: 'GEST-S482', name: 'The digital firm (GEST-S482)' },
+  ],
+  planDefaultEstimate: 60, // planning auto : durée supposée d'une tâche pas encore estimée (minutes)
   // Planning automatique
   planMaxPerDay: 4,     // heures de travail perso max par jour
   planBlockMax: 120,    // durée max d'un bloc (minutes)

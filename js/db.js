@@ -20,6 +20,16 @@ function supabaseBackend() {
   });
   const check = ({ data, error }) => { if (error) throw error; return data; };
 
+  // Session enregistrée par Supabase dans le navigateur (clé "sb-<projet>-auth-token")
+  const storedUser = () => {
+    try {
+      const key = Object.keys(localStorage).find((k) => /^sb-.*-auth-token$/.test(k));
+      return key ? JSON.parse(localStorage.getItem(key))?.user ?? null : null;
+    } catch { return null; }
+  };
+  // Demande au navigateur de ne pas effacer les données de Cockpit (session, cache) quand il fait du ménage
+  try { navigator.storage?.persist?.(); } catch { /* pas supporté */ }
+
   // Lien "mot de passe oublié" reçu par e-mail → l'app doit proposer un nouveau mot de passe
   let recovery = /type=recovery/.test(location.hash);
   const recoveryListeners = new Set();
@@ -34,7 +44,15 @@ function supabaseBackend() {
     },
     async updatePassword(password) { check(await sb.auth.updateUser({ password })); },
     onRecovery(fn) { if (recovery) fn(); recoveryListeners.add(fn); return () => recoveryListeners.delete(fn); },
-    async user() { return (await sb.auth.getSession()).data.session?.user ?? null; },
+    // Rester connecté : la session est gardée sur l'appareil et renouvelée automatiquement.
+    // Hors connexion, le renouvellement échoue : on garde alors la session enregistrée au lieu de
+    // te renvoyer à l'écran de connexion (les données affichées sont la dernière version en cache).
+    async user() {
+      let session = null;
+      try { session = (await sb.auth.getSession()).data.session; } catch { /* hors connexion */ }
+      if (session) return session.user;
+      return storedUser();
+    },
     async signIn(email, password) { check(await sb.auth.signInWithPassword({ email, password })); },
     async signUp(email, password) { check(await sb.auth.signUp({ email, password })); },
     async signOut() { await sb.auth.signOut(); localStorage.clear(); },
