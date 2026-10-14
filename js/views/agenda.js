@@ -158,13 +158,18 @@ export function Agenda({ store }) {
   const [week, setWeek] = useState(startOfWeek(new Date()));
   const [adding, setAdding] = useState(null);
   const days = [...Array(7)].map((_, i) => addDays(week, i));
-  const [showOptional, setShowOptional] = useState(() => { try { return localStorage.getItem('cockpit-show-optional') !== '0'; } catch { return true; } });
-  const toggleOptional = () => {
-    setShowOptional(!showOptional);
-    try { localStorage.setItem('cockpit-show-optional', showOptional ? '0' : '1'); } catch { /* ignore */ }
-  };
-  const hasOptional = store.events.some((e) => !counts(e));
-  const inWeek = store.events.filter((e) => new Date(e.starts_at) >= week && new Date(e.starts_at) < addDays(week, 7) && (showOptional || counts(e)));
+  // Préférences d'affichage (mémorisées sur l'appareil)
+  const pref = (k, def) => { try { const v = localStorage.getItem(k); return v === null ? def : v === '1'; } catch { return def; } };
+  const [showOptional, setShowOptional] = useState(() => pref('cockpit-show-optional', true));   // agenda à la carte
+  const [showUnchosen, setShowUnchosen] = useState(() => pref('cockpit-show-unchosen', false));  // groupes non retenus
+  const flip = (k, v, setter) => { setter(!v); try { localStorage.setItem(k, v ? '0' : '1'); } catch { /* ignore */ } };
+
+  // Groupe "pas retenu" = cours à choix pour lequel tu as choisi un autre groupe (ou "Je n'y vais pas")
+  const unchosen = (e) => e._choice && e._decided && !e._counted;
+  const thisWeek = store.events.filter((e) => new Date(e.starts_at) >= week && new Date(e.starts_at) < addDays(week, 7));
+  const hiddenCount = thisWeek.filter(unchosen).length;
+  const hasOptional = thisWeek.some((e) => e.optional);
+  const inWeek = thisWeek.filter((e) => (showUnchosen || !unchosen(e)) && (showOptional || !e.optional || counts(e)));
   const plan = usePlan(store);
   const total = (k) => inWeek.filter((e) => e.kind === k && counts(e)).reduce((a, e) => a + hoursBetween(e.starts_at, e.ends_at), 0);
   const isThisWeek = sameDay(week, startOfWeek(new Date()));
@@ -183,11 +188,14 @@ export function Agenda({ store }) {
       </div>
       <button class="icon-btn" onClick=${() => setWeek(addDays(week, 7))} aria-label="Semaine suivante"><${Icon} name="right" /></button>
     </div>
-    ${hasOptional && html`
+    ${(hiddenCount > 0 || hasOptional) && html`
       <div class="optional-toggle">
-        <button class=${`chip ${showOptional ? 'on' : ''}`} onClick=${toggleOptional} aria-pressed=${showOptional}>
-          <i style="background:var(--c-pink)"></i>Options non retenues : ${showOptional ? 'affichées' : 'masquées'}</button>
-        <span class="muted small">Agenda à la carte et cours à choix : touche-les puis « J'y vais » pour les compter.</span>
+        ${hiddenCount > 0 && html`
+          <button class=${`chip ${showUnchosen ? 'on' : ''}`} onClick=${() => flip('cockpit-show-unchosen', showUnchosen, setShowUnchosen)} aria-pressed=${showUnchosen}>
+            ${showUnchosen ? `Masquer les ${hiddenCount} groupes non retenus` : `${hiddenCount} groupe${hiddenCount > 1 ? 's' : ''} non retenu${hiddenCount > 1 ? 's' : ''} masqué${hiddenCount > 1 ? 's' : ''} · afficher`}</button>`}
+        ${hasOptional && html`
+          <button class=${`chip ${showOptional ? 'on' : ''}`} onClick=${() => flip('cockpit-show-optional', showOptional, setShowOptional)} aria-pressed=${showOptional}>
+            <i style="background:var(--c-pink)"></i>Agenda à la carte : ${showOptional ? 'affiché' : 'masqué'}</button>`}
       </div>`}
 
     <div class="days">
