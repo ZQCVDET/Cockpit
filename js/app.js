@@ -2,7 +2,7 @@
 import { html, render, useState, useEffect } from './lib.js';
 import { db } from './db.js';
 import { useStore, loadAll } from './store.js';
-import { Icon, attempt } from './ui.js';
+import { Icon, attempt, toast } from './ui.js';
 import { Home } from './views/home.js';
 import { Agenda } from './views/agenda.js';
 import { Courses } from './views/courses.js';
@@ -36,6 +36,10 @@ function Login() {
     setBusy(false);
     if (ok) location.reload();
   };
+  const forgot = async () => {
+    if (!email) return toast('Entre d\'abord ton e-mail ci-dessus');
+    await attempt(() => db.resetPassword(email), 'E-mail envoyé : clique sur le lien reçu pour choisir un nouveau mot de passe');
+  };
   return html`
     <main class="login">
       <form class="card" onSubmit=${submit}>
@@ -47,6 +51,29 @@ function Login() {
         <button class="btn primary full" disabled=${busy}>${busy ? '…' : mode === 'in' ? 'Se connecter' : 'Créer le compte'}</button>
         <button type="button" class="link small center" onClick=${() => setMode(mode === 'in' ? 'up' : 'in')}>
           ${mode === 'in' ? 'Première fois ? Créer le compte' : 'J\'ai déjà un compte'}</button>
+        ${mode === 'in' && html`<button type="button" class="link small center" onClick=${forgot}>Mot de passe oublié ?</button>`}
+      </form>
+    </main>`;
+}
+
+// Écran affiché quand on arrive par le lien "mot de passe oublié" reçu par e-mail
+function NewPassword({ onDone }) {
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const submit = async (e) => {
+    e.preventDefault();
+    if (pw !== pw2) return toast('Les deux mots de passe ne sont pas identiques');
+    if (await attempt(() => db.updatePassword(pw), 'Mot de passe changé')) onDone();
+  };
+  return html`
+    <main class="login">
+      <form class="card" onSubmit=${submit}>
+        <div class="logo">C</div>
+        <h1>Nouveau mot de passe</h1>
+        <p class="muted">Choisis ton nouveau mot de passe Cockpit.</p>
+        <label class="field"><span class="label">Nouveau mot de passe</span><input type="password" autocomplete="new-password" minlength="8" value=${pw} onInput=${(e) => setPw(e.target.value)} required /></label>
+        <label class="field"><span class="label">Confirme-le</span><input type="password" autocomplete="new-password" minlength="8" value=${pw2} onInput=${(e) => setPw2(e.target.value)} required /></label>
+        <button class="btn primary full">Enregistrer</button>
       </form>
     </main>`;
 }
@@ -54,15 +81,18 @@ function Login() {
 function App() {
   const [user, setUser] = useState(undefined);
   const [tab, setTab] = useState(currentTab());
+  const [recovery, setRecovery] = useState(false);
   const store = useStore();
 
   useEffect(() => {
+    const stop = db.onRecovery(() => setRecovery(true));
     db.user().then((u) => { setUser(u); if (u) loadAll(); });
     const onHash = () => { setTab(currentTab()); window.scrollTo(0, 0); };
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    return () => { stop(); window.removeEventListener('hashchange', onHash); };
   }, []);
 
+  if (recovery) return html`<${NewPassword} onDone=${() => { location.hash = ''; location.reload(); }} />`;
   if (user === undefined) return html`<div class="splash"><div class="logo">C</div></div>`;
   if (!user) return html`<${Login} />`;
   if (!store.ready) return html`<div class="splash"><div class="logo pulse">C</div></div>`;

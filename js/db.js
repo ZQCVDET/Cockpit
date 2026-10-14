@@ -20,8 +20,20 @@ function supabaseBackend() {
   });
   const check = ({ data, error }) => { if (error) throw error; return data; };
 
+  // Lien "mot de passe oublié" reçu par e-mail → l'app doit proposer un nouveau mot de passe
+  let recovery = /type=recovery/.test(location.hash);
+  const recoveryListeners = new Set();
+  sb.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') { recovery = true; recoveryListeners.forEach((fn) => fn()); }
+  });
+
   return {
     mode: 'supabase',
+    async resetPassword(email) {
+      check(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }));
+    },
+    async updatePassword(password) { check(await sb.auth.updateUser({ password })); },
+    onRecovery(fn) { if (recovery) fn(); recoveryListeners.add(fn); return () => recoveryListeners.delete(fn); },
     async user() { return (await sb.auth.getSession()).data.session?.user ?? null; },
     async signIn(email, password) { check(await sb.auth.signInWithPassword({ email, password })); },
     async signUp(email, password) { check(await sb.auth.signUp({ email, password })); },
@@ -86,7 +98,8 @@ function demoBackend() {
   return {
     mode: 'demo',
     async user() { return { email: 'demo@cockpit' }; },
-    async signIn() {}, async signUp() {},
+    async signIn() {}, async signUp() {}, async resetPassword() {}, async updatePassword() {},
+    onRecovery() { return () => {}; },
     async signOut() { localStorage.removeItem(KEY); location.reload(); },
 
     async select(table, { columns = '*', order = 'created_at', asc = true, limit, since } = {}) {

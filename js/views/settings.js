@@ -1,6 +1,6 @@
 // Réglages : prénom, journée type, engagements fixes, catégories du journal, examens.
 import { html, useState } from '../lib.js';
-import { Icon, PageHead, attempt } from '../ui.js';
+import { Icon, PageHead, attempt, toast } from '../ui.js';
 import { saveSettings, setChoiceCourse } from '../store.js';
 import { courseList } from '../lib.js';
 import { db } from '../db.js';
@@ -45,6 +45,13 @@ export function Settings({ store }) {
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     a.download = `cockpit-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
+  };
+
+  const [pw, setPw] = useState({ a: '', b: '' });
+  const changePw = async (e) => {
+    e.preventDefault();
+    if (pw.a !== pw.b) return toast('Les deux mots de passe ne sont pas identiques');
+    if (await attempt(() => db.updatePassword(pw.a), 'Mot de passe changé')) setPw({ a: '', b: '' });
   };
 
   const capacity = (f.dayEnd - f.dayStart) * 7;
@@ -154,6 +161,17 @@ export function Settings({ store }) {
       <p class="muted small">${db.mode === 'demo'
         ? 'Mode démo : les données restent sur cet appareil. Connecte Supabase (voir le guide) pour synchroniser téléphone, iPad et ordi.'
         : 'Connecté à Supabase : tes données sont synchronisées sur tous tes appareils.'}</p>
+      ${db.mode !== 'demo' && html`
+        <details class="pw">
+          <summary class="link small">Changer mon mot de passe</summary>
+          <form onSubmit=${changePw} class="mt-s">
+            <div class="grid2">
+              <input type="password" autocomplete="new-password" minlength="8" placeholder="Nouveau mot de passe" value=${pw.a} onInput=${(e) => setPw({ ...pw, a: e.target.value })} required aria-label="Nouveau mot de passe" />
+              <input type="password" autocomplete="new-password" minlength="8" placeholder="Confirme-le" value=${pw.b} onInput=${(e) => setPw({ ...pw, b: e.target.value })} required aria-label="Confirme le mot de passe" />
+            </div>
+            <button class="btn" type="submit">Enregistrer le mot de passe</button>
+          </form>
+        </details>`}
       <div class="row-actions">
         <button class="btn ghost" onClick=${exportData}>Télécharger une sauvegarde</button>
         <button class="btn ghost danger" onClick=${() => confirm(db.mode === 'demo' ? 'Réinitialiser les données de démo ?' : 'Se déconnecter ?') && db.signOut().then(() => location.reload())}>
